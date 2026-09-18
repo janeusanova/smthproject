@@ -699,8 +699,11 @@ const Store = {
     state.tasks=(t.data||[]).map(r=>({...r.data,id:r.id}));
     const p=(s.data||[]).find(r=>r.key==='project'); if(p) state.project={...state.project,...p.value};
     state.readyG=state.readyT=true; setSync('on',Auth.profile.email+' · '+ROLE_L[Auth.profile.role]); render();
-    await Promise.all([this.loadExtra(),this.loadChat(),this.loadStock(),this.loadOrders()]); const bb=$('#bellBtn'); if(bb){ bb.hidden=false; bb.onclick=bellModal; } renderBell();
-    const nn=myNew().length; if(nn){ state.view='dash'; setTimeout(()=>toast('У вас '+nn+' '+plural(nn,'новая задача','новые задачи','новых задач')+' — см. «Мои задачи»'),900); }
+    // v18: каждый блок — независимо, с повторами; экран обновляется по мере загрузки
+    const part=async(name,fn)=>{ for(let i=0;i<3;i++){ try{ await fn(); if(this._mark) this._mark(name); render(); return true; }catch(e){ console.warn('[smth] не загрузилось:',name,e?.message||e); await new Promise(r=>setTimeout(r,1500*(i+1))); } } toast('Не загрузилось: '+name+' — обновите страницу'); return false; };
+    const res=await Promise.all([part('документы и команда',()=>this.loadExtra()),part('обсуждения',()=>this.loadChat()),part('сток',()=>this.loadStock()),part('заказы',()=>this.loadOrders())]);
+    const bb=$('#bellBtn'); if(bb){ bb.hidden=false; bb.onclick=bellModal; } renderBell();
+    const nn=res[1]?myNew().length:0; if(nn){ state.view='dash'; setTimeout(()=>toast('У вас '+nn+' '+plural(nn,'новая задача','новые задачи','новых задач')+' — см. «Мои задачи»'),900); }
     state.readyG=state.readyT=true; setSync('on',Auth.profile.email+' · '+ROLE_L[Auth.profile.role]);
     render();
   },
@@ -1328,10 +1331,10 @@ const teamByEmail=e=>state.team.find(u=>u.email===(e||'').toLowerCase());
 const personLabel=e=>{const u=teamByEmail(e); return u&&u.name?`${u.name} <${e}>`:e;};
 
 /* ---------- Store: команда, встречи, документы ---------- */
-Store.loadTeam=async function(){ if(!sb) return; const {data}=await sb.from('profiles').select('id,email,name,role').in('role',['viewer','editor','admin']); state.team=(data||[]).map(u=>({...u,email:(u.email||'').toLowerCase()})); };
+Store.loadTeam=async function(){ if(!sb) return; const {data,error}=await sb.from('profiles').select('id,email,name,role').in('role',['viewer','editor','admin']); if(error) throw new Error(error.message); state.team=(data||[]).map(u=>({...u,email:(u.email||'').toLowerCase()})); };
 Store.loadExtra=async function(){
   if(this.mode!=='db') return;
-  const [m,d]=await Promise.all([sb.from('meetings').select('id,data'),sb.from('documents').select('id,data')]);
+  const [m,d]=await Promise.all([sb.from('meetings').select('id,data'),sb.from('documents').select('id,data')]); if(m.error) throw new Error(m.error.message); if(d.error) throw new Error(d.error.message);
   state.meetings=(m.data||[]).map(r=>({...r.data,id:r.id})); state.docs=(d.data||[]).map(r=>({...r.data,id:r.id}));
   await this.loadTeam();
 };
@@ -1490,7 +1493,7 @@ const linkify=s=>esc(s).replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_b
 /* ---------- Store ---------- */
 Store.loadChat=async function(){ if(this.mode!=='db') return;
   const [c,r]=await Promise.all([sb.from('comments').select('*').order('created_at'),sb.from('task_reads').select('task_id,read_at')]);
-  if(c.error){ if(/comments/.test(c.error.message)) toast('Обсуждения недоступны: выполните schema_v3.sql в Supabase'); return; }
+  if(c.error){ if(/relation .*comments/.test(c.error.message)){ toast('Обсуждения недоступны: выполните schema_v3.sql в Supabase'); return; } throw new Error(c.error.message); } if(r.error) throw new Error(r.error.message);
   state.comments=c.data||[]; state.reads={}; (r.data||[]).forEach(x=>state.reads[x.task_id]=x.read_at); };
 Store.markRead=async function(taskId){ const now=new Date().toISOString(); state.reads[taskId]=now; renderBell(); if(this.mode!=='db'||!myId()) return;
   await sb.from('task_reads').upsert({user_id:myId(),task_id:taskId,read_at:now}); };
@@ -1751,7 +1754,7 @@ function autosize(el){ el.style.height='auto'; el.style.height=(el.scrollHeight+
    ========================================================= */
 state.stock=null; state.stockQ=''; state.stockOnly=''; state.stockSort='name'; state.stockDir=1; state.stockBusy=false;
 const fmtN=n=>Number(n||0).toLocaleString('ru-RU');
-Store.loadStock=async function(){ if(this.mode!=='db') return; const {data}=await sb.from('settings').select('value').eq('key','sdt_stock').maybeSingle(); if(data&&data.value) state.stock=data.value; };
+Store.loadStock=async function(){ if(this.mode!=='db') return; const {data,error}=await sb.from('settings').select('value').eq('key','sdt_stock').maybeSingle(); if(error) throw new Error(error.message); if(data&&data.value) state.stock=data.value; };
 Store.refreshStock=async function(){ if(this.mode!=='db'||!sb){ toast('Остатки доступны только на сайте (нужен вход)'); return; } if(state.stockBusy) return; state.stockBusy=true; if(state.view==='stock') render();
   try{ const {data,error}=await sb.functions.invoke('sdt',{body:{action:'stock'}});
     if(error){ let msg=error.message||String(error); try{ const ctx=error.context; if(ctx&&ctx.json){ const j=await ctx.json(); if(j&&j.error) msg=j.error; } }catch(e){} throw new Error(msg); }
@@ -1807,7 +1810,7 @@ function ordGroup(o){ const n=(o.status_name||'').toLowerCase(); const id=+o.sta
   if(id<=14) return 'new'; if(id<=16) return 'wh'; return 'ship'; }
 function ordPill(o){ const g=ordGroup(o); return `<span class="opill ${g}" title="Статус ${o.status}${o.status_name?' · '+esc(o.status_name):''}">${esc(o.status_name||('Статус '+o.status))}</span>`; }
 const ordRub=n=>Number(n||0).toLocaleString('ru-RU')+' ₽';
-Store.loadOrders=async function(){ if(this.mode!=='db') return; const {data}=await sb.from('settings').select('value').eq('key','sdt_orders').maybeSingle(); if(data&&data.value) state.orders=data.value; };
+Store.loadOrders=async function(){ if(this.mode!=='db') return; const {data,error}=await sb.from('settings').select('value').eq('key','sdt_orders').maybeSingle(); if(error) throw new Error(error.message); if(data&&data.value) state.orders=data.value; };
 Store.refreshOrders=async function(){ if(this.mode!=='db'||!sb){ toast('Заказы доступны только на сайте (нужен вход)'); return; } if(state.ordBusy) return; state.ordBusy=true; if(state.view==='orders') render();
   try{ const {data,error}=await sb.functions.invoke('sdt',{body:{action:'orders'}});
     if(error){ let msg=error.message||String(error); try{ const ctx=error.context; if(ctx&&ctx.json){ const j=await ctx.json(); if(j&&j.error) msg=j.error; } }catch(e){} throw new Error(msg); }
@@ -1957,7 +1960,7 @@ const _tasksOfTop=gid=>tasksOf(gid).filter(t=>!(t.parentId&&state.tasks.some(p=>
    ========================================================= */
 state.stockFlags={};
 const isDrop=x=>!!(state.stockFlags[x.item_id]&&state.stockFlags[x.item_id].drop);
-Store.loadStockFlags=async function(){ if(this.mode!=='db') return; const {data}=await sb.from('settings').select('value').eq('key','sdt_flags').maybeSingle(); if(data&&data.value) state.stockFlags=data.value; };
+Store.loadStockFlags=async function(){ if(this.mode!=='db') return; const {data,error}=await sb.from('settings').select('value').eq('key','sdt_flags').maybeSingle(); if(error) throw new Error(error.message); if(data&&data.value) state.stockFlags=data.value; };
 Store.setDrop=async function(itemId,on){ const f={...state.stockFlags}; if(on) f[itemId]={...(f[itemId]||{}),drop:true,by:myEmail(),at:new Date().toISOString()}; else { if(f[itemId]) delete f[itemId].drop; if(f[itemId]&&!Object.keys(f[itemId]).some(k=>!['by','at'].includes(k))) delete f[itemId]; }
   state.stockFlags=f; if(this.mode==='db'){ const {error}=await sb.from('settings').upsert({key:'sdt_flags',value:f}); if(error) toast('Не удалось сохранить: '+error.message); } };
 const _loadStock14=Store.loadStock; Store.loadStock=async function(){ await Promise.all([_loadStock14.call(this),this.loadStockFlags()]); };
