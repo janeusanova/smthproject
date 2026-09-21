@@ -1,5 +1,6 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#101820"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ccircle cx=%2750%27 cy=%2750%27 r=%2746%27 fill=%27%23FE5000%27/%3E%3C/svg%3E"><style>:root{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body><title>SMTH · План проекта</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap" media="print" onload="this.media='all'">
+<script>window.__errs=[];window.addEventListener("error",function(e){window.__errs.push((e.message||"ошибка")+(e.filename?" @"+e.lineno:""));});window.addEventListener("unhandledrejection",function(e){var r=e.reason;window.__errs.push("promise: "+(r&&r.message||r));});</script>
 <style>
 /* Токены — брендбук SMTH: SMTH Orange #FE5000, SMTH Ink #101820, Bone #F6F4EF, Sand, Stone, Mist, Graphite #5A5E63 */
 :root{
@@ -508,6 +509,13 @@ textarea.title-in{resize:none;overflow:hidden;width:calc(100% + 16px);display:bl
 .kpi.tl{border-left:8px solid} .kpi.tl.low{border-left-color:#D9432F} .kpi.tl.low .v{color:#D9432F} .kpi.tl.mid{border-left-color:#F5B82E} .kpi.tl.mid .v{color:#8a5a00} .kpi.tl.ok{border-left-color:#2E9E5B} .kpi.tl.ok .v{color:#2E9E5B}
 .kpi.click:hover{border-color:var(--accent)}
 @media (max-width:760px){.kpis.woc3{grid-template-columns:1fr 1fr}}
+
+/* ---------- v19: сторож ---------- */
+#wdbox{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(20,20,18,.45);z-index:9999;padding:16px}
+#wdbox .wdin{background:var(--bg,#fff);color:var(--ink,#111);border-radius:14px;padding:20px 22px;max-width:460px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25);font-size:14px;line-height:1.5}
+#wdbox .wdin b{font-size:16px}
+#wdbox .hint{margin:8px 0 14px;font-size:13px}
+#wdbox .wdbtns{display:flex;gap:8px;flex-wrap:wrap}
 </style>
 
 <div id="auth" hidden></div>
@@ -525,7 +533,7 @@ textarea.title-in{resize:none;overflow:hidden;width:calc(100% + 16px);display:bl
       <button role="tab" data-view="orders">Заказы</button>
     </div>
     <div class="spacer"></div>
-    <span class="sync" id="sync"><i></i><span>подключение…</span></span>
+    <span class="sync" id="sync"><i></i><span>загрузка страницы…</span></span>
     <div class="dd" id="onlineDD"><button class="btn ghost sm" id="onlineBtn" title="Кто сейчас на сайте" hidden><i class="on"></i><b id="onlineN">1</b>&nbsp;онлайн</button><div class="menu" id="onlineMenu" role="menu" hidden></div></div><button class="btn ghost" id="bellBtn" title="Сообщения по задачам" hidden>💬<b class="badge" id="bellN" hidden></b></button><span id="userBox" hidden style="display:inline-flex;gap:6px;align-items:center"><button class="btn sm" id="adminBtn" hidden>👥 Пользователи</button><div class="dd" id="userDD"><button class="btn ghost sm" id="userBtn" aria-haspopup="menu" title="Профиль и выход">👤 <span id="userEmail" class="hint" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle"></span> ▾</button><div class="menu" id="userMenu" role="menu" hidden><button role="menuitem" id="u_profile">Мой профиль и пароль</button><button role="menuitem" id="u_users" hidden>👥 Пользователи и доступ</button><button role="menuitem" id="signOutBtn">⎋ Выйти из аккаунта</button></div></div></span>
     <div class="tabs" id="modeTabs" title="Режим страницы"><button data-m="edit" aria-selected="true">✎ <span class="lbl-l">Редактирование</span><span class="lbl-s">Правка</span></button><button data-m="view">👁 <span class="lbl-l">Просмотр</span><span class="lbl-s">Вид</span></button></div>
     <div class="dd" id="dlWrap"><button class="btn" id="dlBtn" aria-haspopup="menu" aria-expanded="false">⬇ Скачать</button>
@@ -1981,6 +1989,32 @@ const _libs={};
 function loadLib(src){ if(_libs[src]) return _libs[src]; _libs[src]=new Promise((res,rej)=>{ const el=document.createElement('script'); el.src=src+'?v=10'; el.onload=()=>res(); el.onerror=()=>{ delete _libs[src]; rej(new Error(src)); }; document.head.appendChild(el); }); return _libs[src]; }
 function loadLibs(list){ return Promise.all(list.map(loadLib)); }
 
-Store.init();
+/* ---------- v19: сторож старта ---------- */
+const WD={t0:performance.now(),done:false};
+function wdStage(){ try{ return $('#sync span').textContent; }catch(e){ return '?'; } }
+function wdShow(reason){
+  if(document.getElementById('wdbox')) return;
+  const errs=(window.__errs||[]).slice(-3).map(esc).join('<br>');
+  const t=window.__t||{}; const marks=Object.keys(t).filter(k=>k!=='start').map(k=>k+' '+t[k]+' мс').join(' · ');
+  const box=document.createElement('div'); box.id='wdbox';
+  box.innerHTML=`<div class="wdin"><b>Страница загружается дольше обычного</b>
+    <div class="hint">${esc(reason)}<br>Этап: <b>${esc(wdStage())}</b> · ${Math.round((performance.now()-WD.t0)/1000)} с${marks?'<br>'+esc(marks):''}${errs?'<br><span style="color:#D9432F">'+errs+'</span>':''}</div>
+    <div class="wdbtns"><button class="btn" id="wd_reload">Обновить страницу</button><button class="btn ghost" id="wd_reset" title="Стереть сохранённый вход в этом браузере и открыть страницу заново">Сбросить вход</button><button class="btn ghost" id="wd_close">Подождать ещё</button></div></div>`;
+  document.body.appendChild(box);
+  $('#wd_reload').onclick=()=>{ location.replace(location.pathname+'?r='+Date.now()); };
+  $('#wd_reset').onclick=()=>{ try{ Object.keys(localStorage).filter(k=>/^sb-/.test(k)).forEach(k=>localStorage.removeItem(k)); sessionStorage.clear(); }catch(e){} location.replace(location.pathname+'?r='+Date.now()); };
+  $('#wd_close').onclick=()=>{ box.remove(); setTimeout(wdCheck,15000); };
+}
+function wdCheck(){
+  if(WD.done) return;
+  const auth=$('#auth'), app=$('#app');
+  const loginShown=auth&&!auth.hidden&&auth.innerHTML.trim().length>0;
+  const dataShown=state.readyT===true;
+  if(loginShown||dataShown||Store.mode==='local'){ WD.done=true; return; }
+  const errs=window.__errs||[];
+  wdShow(errs.length?'При запуске произошла ошибка.':(app&&!app.hidden&&Auth.user?'Данные из базы не приходят — проверьте интернет или VPN.':'Не удаётся подключиться к базе.'));
+}
+setTimeout(wdCheck,12000);
+Promise.resolve().then(()=>Store.init()).catch(e=>{ (window.__errs=window.__errs||[]).push('init: '+(e&&e.message||e)); console.error('[smth] init',e); wdShow('Ошибка при запуске.'); });
 </script>
 </body></html>
